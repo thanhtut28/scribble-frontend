@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { Paintbrush, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-import CreateRoomForm from "../create-room/create-room-form";
 import RoomPreviewCard from "./room-preview-card";
+import { useRouter } from "next/navigation";
 
 interface Room {
   roomId: string;
@@ -20,7 +19,6 @@ interface Room {
 }
 
 export default function RoomList() {
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [rooms] = useState<Room[]>([
     {
       roomId: "room-123",
@@ -64,6 +62,8 @@ export default function RoomList() {
     },
   ]);
 
+  const router = useRouter();
+
   const handleJoinRoom = (roomId: string) => {
     console.log(`Joining room: ${roomId}`);
     // Add your join room logic here
@@ -80,10 +80,18 @@ export default function RoomList() {
         <div className="flex items-center">
           <Paintbrush className="mr-2 h-6 w-6 text-amber-600" />
           <h2 className="text-2xl font-bold text-amber-800">
-            Available Drawing Rooms
+            Available Drawing Rooms {rooms.length > 0 && `(${rooms.length})`}
           </h2>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={() => router.push("/create-room")}
+            className="rounded-full border-2 border-amber-600 bg-amber-500 font-medium text-white shadow-md transition-all hover:bg-amber-600 hover:shadow-lg"
+          >
+            <Plus className="h-5 w-5" />
+            Create New Room
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -93,28 +101,8 @@ export default function RoomList() {
             <RefreshCw className="mr-1 h-4 w-4" />
             Refresh
           </Button>
-          <Button
-            size="sm"
-            className="bg-amber-500 text-white hover:bg-amber-600"
-            onClick={() => setShowCreateForm(!showCreateForm)}
-          >
-            {showCreateForm ? (
-              "Cancel"
-            ) : (
-              <>
-                <Plus className="mr-1 h-4 w-4" />
-                Create Room
-              </>
-            )}
-          </Button>
         </div>
       </div>
-
-      {showCreateForm ? (
-        <div className="mb-8">
-          <CreateRoomForm />
-        </div>
-      ) : null}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {rooms.map((room) => (
@@ -147,7 +135,7 @@ export default function RoomList() {
           </p>
           <Button
             className="bg-amber-500 text-white hover:bg-amber-600"
-            onClick={() => setShowCreateForm(true)}
+            onClick={() => router.push("/create-room")}
           >
             <Plus className="mr-1 h-4 w-4" />
             Create a Room

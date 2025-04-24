@@ -3,10 +3,7 @@
 import ChatRoom from "@/components/chat-room/chat-room";
 import RoomUsers, { RoomUser } from "@/components/chat-room/room-users";
 import DrawingBoard from "@/components/drawing-board/drawing-board";
-import { AlertCircle } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import GridPaperBackground from "@/components/ui/grid-background";
 
 export default function DrawingRoomTemplate() {
   const [currentTurn, setCurrentTurn] = useState(0);
@@ -15,6 +12,7 @@ export default function DrawingRoomTemplate() {
   const [showTurnNotification, setShowTurnNotification] = useState(false);
   const [currentDrawerName, setCurrentDrawerName] = useState("");
   const turnChangeAudio = useRef<HTMLAudioElement | null>(null);
+  // console.log(showTurnNotification, currentDrawerName);
 
   const [users] = useState<RoomUser[]>([
     {

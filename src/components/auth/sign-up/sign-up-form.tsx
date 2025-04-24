@@ -90,14 +90,14 @@ const SignUpForm = () => {
   }, [form]);
 
   return (
-    <div className="relative mx-auto w-full max-w-md">
+    <div className="relative mx-auto my-4 w-full max-w-md">
       {/* Decorative elements */}
       <div className="absolute -top-2 -left-7 h-12 w-12 rounded-full bg-yellow-400 opacity-80"></div>
-      <div className="absolute -right-4 -bottom-2 h-10 w-10 rounded-full bg-blue-500 opacity-70"></div>
+      <div className="absolute -right-4 bottom-2 h-10 w-10 rounded-full bg-blue-500 opacity-70"></div>
       <div className="absolute top-1/4 -right-8 h-8 w-8 rounded-full bg-red-500 opacity-70"></div>
       <div className="absolute bottom-1/3 -left-10 h-14 w-14 rounded-full bg-green-500 opacity-60"></div>
 
-      <Card className="relative w-full overflow-hidden border-4 border-dashed border-amber-500 bg-[#fffdf7] shadow-lg">
+      <Card className="relative w-full overflow-hidden border-4 border-dashed border-amber-500 bg-[#fffdf7] py-4 shadow-lg">
         <div className="absolute top-0 right-0 h-20 w-20 rounded-bl-full bg-red-100 opacity-50"></div>
         <div className="absolute bottom-0 left-0 h-24 w-24 rounded-tr-full bg-blue-100 opacity-50"></div>
 
@@ -113,7 +113,7 @@ const SignUpForm = () => {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="relative pt-6">
+        <CardContent className="relative pt-4">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-4">

@@ -27,17 +27,23 @@ export default function Canvas() {
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
-        setCanvasDimensions({ width: "100%", height: "430px" });
+        const width = containerRef.current.offsetWidth;
+        const aspectRatio = 600 / 430;
+        const height = width / aspectRatio;
+
+        setCanvasDimensions({
+          width: `${width}px`,
+          height: `${height}px`,
+        });
       }
     };
 
-    // Initial setup
+    // Run on initial mount
     handleResize();
 
-    // Add resize listener
+    // Listen for window resize
     window.addEventListener("resize", handleResize);
 
-    // Cleanup
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 

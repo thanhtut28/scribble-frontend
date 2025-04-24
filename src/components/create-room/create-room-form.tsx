@@ -36,7 +36,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const CreateRoomForm = () => {
+interface CreateRoomFormProps {
+  onSubmitStart?: () => void;
+  onSubmitComplete?: () => void;
+}
+
+const CreateRoomForm = ({
+  onSubmitStart,
+  onSubmitComplete,
+}: CreateRoomFormProps = {}) => {
   const form = useForm<GameSettings>({
     resolver: zodResolver(gameSettingsSchema),
     defaultValues: {
@@ -49,7 +57,14 @@ const CreateRoomForm = () => {
   });
 
   function onSubmit(values: GameSettings) {
+    if (onSubmitStart) onSubmitStart();
     console.log(values);
+
+    // Simulate API call with timeout
+    setTimeout(() => {
+      if (onSubmitComplete) onSubmitComplete();
+      // Here you would typically redirect to the new room
+    }, 1000);
   }
 
   const generateSelectItems = (start: number, end: number, step = 1) =>
@@ -60,7 +75,7 @@ const CreateRoomForm = () => {
     ));
 
   return (
-    <div className="relative mx-auto w-full max-w-md">
+    <div className="relative mx-auto w-full max-w-lg">
       {/* Decorative elements */}
       <div className="absolute -top-6 -left-6 h-12 w-12 rounded-full bg-yellow-400 opacity-80"></div>
       <div className="absolute -right-4 -bottom-4 h-10 w-10 rounded-full bg-blue-500 opacity-70"></div>
@@ -197,7 +212,7 @@ const CreateRoomForm = () => {
                           <SelectTrigger className="border-amber-300 bg-white">
                             <SelectValue placeholder="Select word count" />
                           </SelectTrigger>
-                          <SelectContent title="Number of drawing subjects">
+                          <SelectContent title="Number of words per round">
                             {generateSelectItems(1, 5)}
                           </SelectContent>
                         </Select>

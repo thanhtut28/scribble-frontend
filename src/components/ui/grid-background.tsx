@@ -7,7 +7,7 @@ interface GridPaperBackgroundProps {
 }
 
 export default function GridPaperBackground({
-  gridSize = 20,
+  gridSize = 10,
   primaryColor = "#d1d1d1",
   secondaryColor = "#e5e5e5",
   backgroundColor = "#f8f8f8",
