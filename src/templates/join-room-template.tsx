@@ -1,7 +1,7 @@
 "use client";
 
 import RoomList from "@/components/join-room/room-list";
-import { Palette, Plus, Search, Filter, RefreshCw, X } from "lucide-react";
+import { Palette, Search, Filter, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,15 +12,47 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUrlState } from "@/hooks/use-url-state";
+import { useSocket } from "@/lib/providers/socket-provider";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 const JoinRoomTemplate = () => {
   const [filters, setters, resetFilters] = useUrlState({
     search: "",
     roomStatus: "all",
   });
+  const { refreshRooms, isConnected, connecting, connect } = useSocket();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [connectionAttempted, setConnectionAttempted] = useState(false);
 
-  //Desture setters
+  // Effect to ensure connection is established
+  useEffect(() => {
+    if (!isConnected && !connecting && !connectionAttempted) {
+      console.log("Attempting to connect from JoinRoomTemplate");
+      connect().catch((err) => {
+        console.error("Connection failed:", err);
+        toast.error("Failed to connect to the drawing server");
+      });
+      setConnectionAttempted(true);
+    }
+  }, [isConnected, connecting, connectionAttempted, connect]);
+
+  // Destructure setters
   const { setSearch, setRoomStatus } = setters;
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    setConnectionAttempted(false); // Reset connection attempt flag to allow reconnection
+    try {
+      await refreshRooms();
+      toast.success("Room list refreshed");
+    } catch (err) {
+      console.error("Failed to refresh rooms:", err);
+      toast.error("Failed to refresh room list");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <div className="relative min-h-screen">
@@ -76,8 +108,12 @@ const JoinRoomTemplate = () => {
                 variant="outline"
                 size="icon"
                 className="border-amber-300 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
               >
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw
+                  className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+                />
               </Button>
 
               {/* Clear filters button */}
@@ -95,24 +131,6 @@ const JoinRoomTemplate = () => {
         </div>
 
         <RoomList />
-
-        {/* Empty state (conditionally rendered) */}
-        {false && (
-          <div className="mt-8 flex flex-col items-center justify-center rounded-xl border-4 border-dashed border-amber-300 bg-[#fffdf7] p-8 text-center">
-            <Palette className="mb-2 h-12 w-12 text-amber-400" />
-            <h3 className="mb-2 text-xl font-semibold text-amber-800">
-              No Rooms Found
-            </h3>
-            <p className="mb-4 text-amber-700">
-              There are no rooms matching your search criteria. Try adjusting
-              your filters or create your own room!
-            </p>
-            <Button className="rounded-full border-2 border-amber-600 bg-amber-500 px-6 font-medium text-white shadow-md transition-all hover:bg-amber-600 hover:shadow-lg">
-              <Plus className="mr-2 h-5 w-5" />
-              Create New Room
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

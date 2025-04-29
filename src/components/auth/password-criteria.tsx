@@ -4,8 +4,8 @@ const PasswordCriteria = ({ password }: { password: string }) => {
   // Define password criteria
   const criteria = [
     {
-      label: "At least 8 characters",
-      met: password.length >= 8,
+      label: "At least 3 characters",
+      met: password.length >= 3,
     },
     {
       label: "Contains uppercase letter",

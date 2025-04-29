@@ -25,23 +25,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useAuthContext } from "@/lib/providers/auth-provider";
+import { toast } from "sonner";
 
 // Define schema directly in the component file for better readability
 const loginSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  identifier: z.string().min(1, "Email or username is required"),
+  password: z.string().min(3, "Password must be at least 3 characters"),
 });
 
 type LoginSchemaType = z.infer<typeof loginSchema>;
 
 const LoginForm = () => {
-  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { login } = useAuthContext();
 
   const form = useForm<LoginSchemaType>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
+      identifier: "",
       password: "",
     },
   });
@@ -50,14 +52,20 @@ const LoginForm = () => {
     setShowPassword((prev) => !prev);
   }, []);
 
-  const onSubmit = useCallback((formData: LoginSchemaType) => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      console.log("LOGIN formdata", formData);
-      setIsLoading(false);
-    }, 1500);
-  }, []);
+  const onSubmit = useCallback(
+    async (formData: LoginSchemaType) => {
+      try {
+        await login.mutateAsync({
+          usernameOrEmail: formData.identifier,
+          password: formData.password,
+        });
+        toast.success("Login successful!");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Login failed");
+      }
+    },
+    [login],
+  );
 
   return (
     <div className="relative mx-auto w-full max-w-md">
@@ -87,15 +95,15 @@ const LoginForm = () => {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
               <div className="space-y-4">
-                {/* Email Field */}
+                {/* Email or Username Field */}
                 <FormField
                   control={form.control}
-                  name="email"
+                  name="identifier"
                   render={({ field, fieldState }) => (
                     <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
                       <FormLabel className="flex items-center gap-2 text-amber-800">
                         <Mail className="h-4 w-4 text-amber-600" />
-                        Email
+                        Email or Username
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -104,7 +112,7 @@ const LoginForm = () => {
                             "border-amber-300 bg-white text-base placeholder:text-amber-300",
                             fieldState.invalid && "border-red-400",
                           )}
-                          placeholder="Enter your email"
+                          placeholder="Enter your email or username"
                         />
                       </FormControl>
                       <FormMessage className="text-sm font-medium text-red-500" />
@@ -173,9 +181,9 @@ const LoginForm = () => {
                   type="submit"
                   size="lg"
                   className="w-full rounded-full border-2 border-amber-600 bg-amber-500 px-8 font-medium text-white shadow-md transition-all hover:bg-amber-600 hover:shadow-lg"
-                  disabled={isLoading}
+                  disabled={login.isPending}
                 >
-                  {isLoading ? (
+                  {login.isPending ? (
                     <div className="flex items-center justify-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                       <span>Logging in...</span>

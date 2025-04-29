@@ -12,7 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { Eye, EyeOff, Lock, Mail, User, UserCircle2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, UserCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
@@ -26,15 +26,24 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import PasswordCriteria from "../password-criteria";
+import { useAuthContext } from "@/lib/providers/auth-provider";
+import { toast } from "sonner";
 
 // Define schema directly in the component file for better readability
 const signUpSchema = z
   .object({
-    fullName: z.string().min(2, "Full name must be at least 2 characters"),
+    username: z
+      .string()
+      .min(3, "Username must be at least 3 characters")
+      .max(20, "Username must be less than 20 characters")
+      .regex(
+        /^[a-zA-Z0-9_]+$/,
+        "Username can only contain letters, numbers, and underscores",
+      ),
     email: z.string().email("Please enter a valid email address"),
     password: z
       .string()
-      .min(8, "Password must be at least 8 characters")
+      .min(3, "Password must be at least 3 characters")
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(/[0-9]/, "Password must contain at least one number"),
     confirmPassword: z.string(),
@@ -52,11 +61,12 @@ const SignUpForm = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [showCriteria, setShowCriteria] = useState(false);
+  const { signup } = useAuthContext();
 
   const form = useForm<SignUpSchemaType>({
     resolver: zodResolver(signUpSchema),
     defaultValues: {
-      fullName: "",
+      username: "",
       email: "",
       password: "",
       confirmPassword: "",
@@ -71,14 +81,23 @@ const SignUpForm = () => {
     setShowConfirmPassword((prev) => !prev);
   }, []);
 
-  const onSubmit = useCallback((formData: SignUpSchemaType) => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      console.log("SIGNUP formdata", formData);
-      setIsLoading(false);
-    }, 1500);
-  }, []);
+  const onSubmit = useCallback(
+    async (formData: SignUpSchemaType) => {
+      try {
+        await signup.mutateAsync({
+          email: formData.email,
+          username: formData.username,
+          password: formData.password,
+        });
+        toast.success("Account created successfully!");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Registration failed",
+        );
+      }
+    },
+    [signup],
+  );
 
   useEffect(() => {
     const subscription = form.watch((value, { name }) => {
@@ -117,15 +136,15 @@ const SignUpForm = () => {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-4">
-                {/* Full Name Field */}
+                {/* Username Field */}
                 <FormField
                   control={form.control}
-                  name="fullName"
+                  name="username"
                   render={({ field, fieldState }) => (
                     <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
                       <FormLabel className="flex items-center gap-2 text-amber-800">
-                        <User className="h-4 w-4 text-amber-600" />
-                        Full Name
+                        <UserCircle2 className="h-4 w-4 text-amber-600" />
+                        Username
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -134,7 +153,7 @@ const SignUpForm = () => {
                             "border-amber-300 bg-white text-base placeholder:text-amber-300",
                             fieldState.invalid && "border-red-400",
                           )}
-                          placeholder="Enter your full name"
+                          placeholder="Choose a username"
                         />
                       </FormControl>
                       <FormMessage className="text-sm font-medium text-red-500" />
@@ -267,12 +286,12 @@ const SignUpForm = () => {
                   type="submit"
                   size="lg"
                   className="w-full rounded-full border-2 border-amber-600 bg-amber-500 px-8 font-medium text-white shadow-md transition-all hover:bg-amber-600 hover:shadow-lg"
-                  disabled={isLoading}
+                  disabled={signup.isPending}
                 >
-                  {isLoading ? (
+                  {signup.isPending ? (
                     <div className="flex items-center justify-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                      <span>Creating account...</span>
+                      <span>Creating Account...</span>
                     </div>
                   ) : (
                     "Create Account"

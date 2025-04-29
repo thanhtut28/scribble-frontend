@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Users, Clock, Target, Palette, ArrowRight, Crown } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,8 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ArrowRight, Crown, Palette, Target, Users } from "lucide-react";
+import { useState } from "react";
 
 interface RoomPreviewProps {
   roomId: string;
@@ -21,24 +21,22 @@ interface RoomPreviewProps {
   hostAvatar?: string;
   players: number;
   maxPlayers: number;
-  drawTime: number;
   rounds: number;
   status: "waiting" | "in-progress" | "completed";
   onJoin: (roomId: string) => void;
 }
 
 const RoomPreviewCard = ({
-  roomId = "room-123",
-  roomName = "Artistic Doodlers",
-  hostName = "CreativeMind",
+  roomId,
+  roomName,
+  hostName,
   hostAvatar,
-  players = 3,
-  maxPlayers = 8,
-  drawTime = 80,
-  rounds = 3,
-  status = "waiting",
-  onJoin = () => console.log("Joining room"),
-}: Partial<RoomPreviewProps>) => {
+  players,
+  maxPlayers,
+  rounds,
+  status,
+  onJoin,
+}: RoomPreviewProps) => {
   const [isHovering, setIsHovering] = useState(false);
 
   const getStatusColor = () => {
@@ -124,14 +122,6 @@ const RoomPreviewCard = ({
               <p className="mt-1 text-center font-medium">
                 {players}/{maxPlayers}
               </p>
-            </div>
-
-            <div className="flex flex-col items-center rounded-lg border border-amber-200 bg-white/80 p-2">
-              <div className="flex items-center text-amber-800">
-                <Clock className="h-4 w-4 text-amber-600" />
-                <span className="ml-1 text-xs">Time</span>
-              </div>
-              <p className="mt-1 text-center font-medium">{drawTime}s</p>
             </div>
 
             <div className="flex flex-col items-center rounded-lg border border-amber-200 bg-white/80 p-2">
