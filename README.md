@@ -1,258 +1,196 @@
-## Game Logic
+# Dootell - Multiplayer Scribble Game
 
-We want to build a scribble game with react frontend and nestjs backend. The flow is simple, players can play multiplayer online with private room system where users can host and join (maximum players 8 people). In each game, there will be 8 rounds and 3 random words will be generated on each round. Each round, a random player will be chosen to pick a word from 3 words and will draw that word on the canvas. The remaining players will guess that word in the chat box and players who guess correct word will be scored according to the speed of the answer. After all rounds, the game ends and the winner will be declared according to the total score.
+A real-time multiplayer drawing and guessing game built with React (Next.js) frontend and NestJS backend. Players can create private rooms, draw, and guess words in an engaging social gaming experience.
 
-## Game Flow
+![Gameplay Demo](./public/gameplay_demo.gif)
 
-1 The host start the game
-2 The drawers are chosen for each round (you have to check the backend code for random word implementation)
-3 The client side should send the canvas update on every stroke for drawer and the remaining players' canvas will be exported the updated canvas
-4 Only the drawer can draw the canvas, other players will be readonly (also hide the tools panel)
-5 The chat messages are shown in the chatbox and the correct word will be marked as green.
-6 The player who guessed the correct word on that round can't chat anymore
-7 This will repeat until the rounds end.
+## ✨ Features
 
-### Websocket guide for the backend
+- 🎨 **Real-time Drawing**: Collaborative canvas with live stroke synchronization
+- 🏠 **Private Room System**: Create and join password-protected game rooms
+- 👥 **Multiplayer Support**: Up to 8 players per room
+- 🎯 **Word Guessing Game**: 8 rounds with 3 random words per round
+- 💬 **Live Chat**: Real-time messaging with correct answer highlighting
+- 🏆 **Scoring System**: Points based on answer speed and accuracy
+- 🔐 **JWT Authentication**: Secure user authentication with refresh tokens
+- 📱 **Responsive Design**: Modern UI that works on all devices
 
-# Room System with WebSockets
+## 🎮 How to Play
 
-This module implements a real-time room system for the Scribble Game using Socket.io WebSockets.
+1. **Create or Join a Room**: Host a new game or join an existing room with a room code
+2. **Take Turns Drawing**: Each round, a random player is chosen to draw one of three given words
+3. **Guess the Word**: Other players type their guesses in the chat
+4. **Score Points**: Faster correct guesses earn more points
+5. **Win the Game**: Player with the highest total score after 8 rounds wins!
 
-## Features
+## 🛠 Tech Stack
 
-- Create, join, and leave rooms in real-time
-- Room password protection
-- Room limits (max players, rounds)
-- Automatic owner reassignment when the owner leaves
-- Real-time notifications for room events
+### Frontend
 
-## WebSocket Events
+- **Next.js 14** - React framework with App Router
+- **TypeScript** - Type safety and better developer experience
+- **Tailwind CSS** - Utility-first CSS framework
+- **Socket.io Client** - Real-time communication
+- **React Query** - Data fetching and state management
+- **React Hook Form** - Form handling with validation
+- **Zustand** - State management
 
-### Client to Server Events
+### Backend
 
-| Event        | Description                    | Payload                                                                                          |
-| ------------ | ------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `createRoom` | Create a new room              | `{ name: string, maxPlayers?: number, rounds?: number, isPrivate?: boolean, password?: string }` |
-| `joinRoom`   | Join an existing room          | `{ roomId: string, password?: string }`                                                          |
-| `leaveRoom`  | Leave a room                   | `roomId: string`                                                                                 |
-| `getRooms`   | Get all available rooms        | -                                                                                                |
-| `getRoom`    | Get details of a specific room | `roomId: string`                                                                                 |
+- **NestJS** - Progressive Node.js framework
+- **Socket.io** - WebSocket communication
+- **JWT** - Authentication and authorization
+- **TypeScript** - Full-stack type safety
 
-### Server to Client Events
+## 🚀 Getting Started
 
-| Event         | Description                | Payload                               |
-| ------------- | -------------------------- | ------------------------------------- |
-| `connected`   | Connection established     | `{ userId: string, message: string }` |
-| `error`       | Error occurred             | `{ message: string }`                 |
-| `rooms`       | List of available rooms    | `Room[]`                              |
-| `roomCreated` | Room creation notification | `Room`                                |
-| `userJoined`  | User joined a room         | `{ room: Room, userId: string }`      |
-| `userLeft`    | User left a room           | `{ room: Room, userId: string }`      |
+### Prerequisites
 
-## Authentication
+- Node.js (v18 or higher)
+- npm or yarn
 
-All WebSocket connections require a valid JWT token for authentication. The token can be provided in one of two ways:
+### Installation
 
-1. In the connection handshake as an auth parameter:
+1. Clone the repository
 
-```javascript
-const socket = io("ws://localhost:4000/rooms", {
-  auth: { token: "YOUR_JWT_TOKEN" },
-});
+```bash
+git clone https://github.com/your-username/dootell.git
+cd dootell
 ```
 
-2. In the connection handshake as an authorization header:
+2. Install dependencies
 
-```javascript
-const socket = io("ws://localhost:4000/rooms", {
-  extraHeaders: { Authorization: "Bearer YOUR_JWT_TOKEN" },
-});
+```bash
+npm install
 ```
 
-## Connection Example
+3. Set up environment variables
 
-```javascript
-const { io } = require("socket.io-client");
-
-// Replace with your JWT token
-const token = "YOUR_JWT_TOKEN_HERE";
-
-// Connect to the WebSocket server
-const socket = io("ws://localhost:4000/rooms", {
-  transports: ["websocket"],
-  auth: { token },
-});
-
-// Connection events
-socket.on("connect", () => {
-  console.log("Connected to server!");
-});
-
-socket.on("error", (error) => {
-  console.error("Connection error:", error);
-});
-
-// Create a room
-socket.emit(
-  "createRoom",
-  {
-    name: "My Game Room",
-    maxPlayers: 4,
-    rounds: 5,
-  },
-  (response) => {
-    if (response.error) {
-      console.error("Error creating room:", response.error);
-    } else {
-      console.log("Room created successfully:", response);
-    }
-  },
-);
+```bash
+cp .env.example .env.local
+# Edit .env.local with your configuration
 ```
 
-See the `examples/websocket-client.js` file for a more complete example.
+4. Start the development server
 
-/// websocket-client.js
+```bash
+npm run dev
+```
 
-/\*\*
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-- Simple WebSocket client example for testing the Scribble Game WebSocket API
--
-- Usage:
-- 1.  Make sure you have a valid JWT token
-- 2.  Update the token variable below with your token
-- 3.  Run this script with Node.js: node websocket-client.js
-      \*/
+## 🏗 Project Structure
 
-const { io } = require('socket.io-client');
+```
+dootell/
+├── src/
+│   ├── app/                    # Next.js App Router pages
+│   │   ├── (auth)/            # Authentication pages
+│   │   └── (room-system)/     # Game room pages
+│   ├── components/            # Reusable UI components
+│   │   ├── auth/              # Authentication components
+│   │   ├── chat-room/         # Chat functionality
+│   │   ├── drawing-board/     # Canvas and drawing tools
+│   │   └── ui/                # Base UI components
+│   ├── hooks/                 # Custom React hooks
+│   ├── lib/                   # Utilities and configurations
+│   │   ├── providers/         # Context providers
+│   │   ├── services/          # API services
+│   │   └── types/             # TypeScript type definitions
+│   └── schema/                # Form validation schemas
+├── public/                    # Static assets
+└── README.md
+```
 
-// Replace with your JWT token
-const token =
-'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MzdkODJmNS0zNmFiLTQ1NGItYWQyMC1mY2VkMTExNjdiMjYiLCJlbWFpbCI6InRoYUB0aGEuY29tIiwiaWF0IjoxNzQ1ODUxODgyLCJleHAiOjE3NDU4NTI3ODJ9.OvmfaCVONZaVTUya7JKn4ksrvDMX-v4tbPXw5jQmktU';
+## 🔌 WebSocket API
 
-// Connect to the WebSocket server
-const socket = io('ws://localhost:4000/rooms', {
-transports: ['websocket'],
-auth: { token },
-});
+### Room Events
 
-// Connection events
-socket.on('connect', () => {
-console.log('Connected to server!');
-});
+| Event        | Description                 | Payload                                                 |
+| ------------ | --------------------------- | ------------------------------------------------------- |
+| `createRoom` | Create a new game room      | `{ name, maxPlayers?, rounds?, isPrivate?, password? }` |
+| `joinRoom`   | Join an existing room       | `{ roomId, password? }`                                 |
+| `leaveRoom`  | Leave the current room      | `roomId`                                                |
+| `getRooms`   | Get list of available rooms | -                                                       |
 
-socket.on('error', (error) => {
-console.error('Connection error:', error);
-});
+### Game Events
 
-socket.on('disconnect', (reason) => {
-console.log('Disconnected:', reason);
-});
+| Event         | Description              | Payload                  |
+| ------------- | ------------------------ | ------------------------ |
+| `startGame`   | Start the game in a room | `roomId`                 |
+| `drawStroke`  | Send drawing data        | `{ roomId, strokeData }` |
+| `sendMessage` | Send chat message        | `{ roomId, message }`    |
+| `selectWord`  | Choose word to draw      | `{ roomId, wordIndex }`  |
 
-socket.on('connected', (data) => {
-console.log('Connection acknowledged:', data);
-});
+## 🔐 Authentication
 
-// Room events
-socket.on('rooms', (rooms) => {
-console.log('Available rooms:', rooms);
-});
+The application uses JWT-based authentication with access and refresh tokens:
 
-socket.on('roomCreated', (room) => {
-console.log('Room created:', room);
-});
-
-socket.on('userJoined', (data) => {
-console.log(`User ${data.userId} joined room:`, data.room);
-});
-
-socket.on('userLeft', (data) => {
-console.log(`User ${data.userId} left room:`, data.room);
-});
-
-// Example: Create a room after 2 seconds
-setTimeout(() => {
-console.log('Creating a room...');
-socket.emit(
-'createRoom',
-{
-name: 'Test Room',
-maxPlayers: 4,
-rounds: 5,
-},
-(response) => {
-if (response.error) {
-console.error('Error creating room:', response.error);
-} else {
-console.log('Room created successfully:', response);
-}
-},
-);
-}, 2000);
-
-// Example: Get all rooms after 4 seconds
-setTimeout(() => {
-console.log('Getting all rooms...');
-socket.emit('getRooms', (response) => {
-if (response.error) {
-console.error('Error getting rooms:', response.error);
-} else {
-console.log('All rooms:', response);
-}
-});
-}, 4000);
-
-// Keep the connection alive
-process.on('SIGINT', () => {
-console.log('Disconnecting...');
-socket.disconnect();
-process.exit(0);
-});
-
-## Authentication Implementation
-
-The project uses JWT-based authentication with access and refresh token strategy. The authentication flow includes:
-
-1. User login or signup to get access and refresh tokens
-2. Tokens are stored in cookies for better security
-3. Automatic refresh of access tokens when they expire
-4. Protected routes that require authentication
-
-### Authentication Stack
-
-- Axios for API requests with interceptors for token management
-- React Query for data fetching and state management
-- Cookie-based token storage with js-cookie
-- Next.js middleware for route protection
+- **Signup/Login**: Get access and refresh tokens
+- **Cookie Storage**: Tokens stored securely in HTTP-only cookies
+- **Auto Refresh**: Automatic token renewal when expired
+- **Protected Routes**: Middleware-based route protection
 
 ### Authentication Endpoints
 
-- `/auth/signup` - Register a new user
-- `/auth/signin` - Login an existing user
-- `/auth/refresh` - Refresh access token
-- `/auth/me` - Get current user profile
+- `POST /auth/signup` - Register new user
+- `POST /auth/signin` - Login existing user
+- `POST /auth/refresh` - Refresh access token
+- `GET /auth/me` - Get current user profile
 
-## Checklist
+## 🎯 Game Logic
 
-[ ]: Todo, [x]: Completed
+### Room System
 
-- [x] Authentication with JWT
-- [ ] User Management (profile, stats)
-- [x] Room System
-  - [x] Create/Join/Leave Room API
-  - [x] Room Settings (max players, rounds)
-  - [x] Player Management in Rooms
-- [ ] Game Logic
-  - [ ] Word Generation/Selection
-  - [ ] Turn Management
-  - [ ] Game State Management
-  - [ ] Scoring System
-- [x] Real-time Communication
-  - [x] Socket.io Integration
-  - [ ] Drawing Data Transmission
-  - [ ] Chat System
-  - [ ] Game Event Broadcasting
-- [ ] Data Persistence
-  - [ ] Game History
-  - [ ] User Statistics
-- [ ] Testing & Deployment
+- Private rooms with optional password protection
+- Maximum 8 players per room
+- Configurable number of rounds (default: 8)
+- Automatic owner reassignment when host leaves
+
+### Gameplay Flow
+
+1. Host starts the game
+2. Random player selection for each round
+3. Drawer picks from 3 random words
+4. Real-time canvas synchronization
+5. Chat-based word guessing
+6. Speed-based scoring system
+7. Winner declaration after all rounds
+
+### Drawing Features
+
+- Real-time stroke synchronization
+- Color picker and brush size selection
+- Drawing tools (pen, eraser)
+- Canvas clear functionality
+- Read-only mode for non-drawers
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🎨 Screenshots
+
+_Add more screenshots of your application here_
+
+## 🔮 Future Features
+
+- [ ] Game replay system
+- [ ] User statistics and achievements
+- [ ] Custom word lists
+- [ ] Voice chat integration
+- [ ] Mobile app (React Native)
+- [ ] Tournament mode
+- [ ] Player profiles and avatars
+
+---
+
+Built with ❤️ by [Your Name](https://github.com/your-username)
