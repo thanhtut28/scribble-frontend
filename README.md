@@ -2,6 +2,16 @@
 
 We want to build a scribble game with react frontend and nestjs backend. The flow is simple, players can play multiplayer online with private room system where users can host and join (maximum players 8 people). In each game, there will be 8 rounds and 3 random words will be generated on each round. Each round, a random player will be chosen to pick a word from 3 words and will draw that word on the canvas. The remaining players will guess that word in the chat box and players who guess correct word will be scored according to the speed of the answer. After all rounds, the game ends and the winner will be declared according to the total score.
 
+## Game Flow
+
+1 The host start the game
+2 The drawers are chosen for each round (you have to check the backend code for random word implementation)
+3 The client side should send the canvas update on every stroke for drawer and the remaining players' canvas will be exported the updated canvas
+4 Only the drawer can draw the canvas, other players will be readonly (also hide the tools panel)
+5 The chat messages are shown in the chatbox and the correct word will be marked as green.
+6 The player who guessed the correct word on that round can't chat anymore
+7 This will repeat until the rounds end.
+
 ### Websocket guide for the backend
 
 # Room System with WebSockets

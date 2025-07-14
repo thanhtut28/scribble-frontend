@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Palette } from "lucide-react";
+import { CheckCircle2, Palette } from "lucide-react";
 import type { Message } from "./chat-room";
+import { cn } from "@/lib/utils";
 
 interface ChatMessagesProps {
   messages: Message[];
@@ -21,6 +22,7 @@ export default function ChatMessages({ messages }: ChatMessagesProps) {
     <div className="flex h-full flex-col space-y-3 overflow-y-auto bg-inherit p-4">
       {messages.map((message, index) => {
         const isCurrentUser = message.isCurrentUser;
+        const isCorrectGuess = message.isCorrect;
         const showAvatar =
           !isCurrentUser &&
           (!messages[index - 1] ||
@@ -55,12 +57,21 @@ export default function ChatMessages({ messages }: ChatMessagesProps) {
                     {message.sender}
                   </span>
                 )}
+                {isCurrentUser && (
+                  <span className="mr-1 mb-1 flex justify-end text-xs font-medium text-amber-700">
+                    You
+                  </span>
+                )}
                 <div
-                  className={`relative rounded-2xl border-2 ${
-                    isCurrentUser
-                      ? "rounded-br-none border-amber-600 bg-amber-500 text-white"
-                      : "rounded-bl-none border-amber-300 bg-white"
-                  } px-3 py-2 shadow-md`}
+                  className={cn(
+                    "relative rounded-2xl border-2 px-3 py-2 shadow-md",
+                    isCurrentUser ? "rounded-br-none" : "rounded-bl-none",
+                    isCorrectGuess
+                      ? "border-green-600 bg-green-500 text-white"
+                      : isCurrentUser
+                        ? "border-amber-600 bg-amber-500 text-white"
+                        : "border-amber-300 bg-white",
+                  )}
                 >
                   {/* Decorative dots */}
                   <div className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-red-400"></div>
@@ -68,7 +79,18 @@ export default function ChatMessages({ messages }: ChatMessagesProps) {
                     <div className="absolute -bottom-1 -left-1 h-2 w-2 rounded-full bg-green-400"></div>
                   )}
 
-                  <p className="text-sm">{message.content}</p>
+                  <div className="flex items-center">
+                    {isCorrectGuess && (
+                      <CheckCircle2 className="mr-1.5 h-4 w-4 text-white" />
+                    )}
+                    <p className="text-sm">{message.content}</p>
+                  </div>
+
+                  {message.timestamp && (
+                    <span className="mt-1 block text-right text-xs opacity-70">
+                      {message.timestamp}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

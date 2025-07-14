@@ -47,11 +47,8 @@ apiClient.interceptors.response.use(
         // Call refresh token endpoint
         const response = await axios.post(
           `${apiClient.defaults.baseURL}/auth/refresh`,
-          {},
           {
-            headers: {
-              Authorization: `Bearer ${refreshToken}`,
-            },
+            refreshToken,
           },
         );
 

@@ -1,7 +1,10 @@
 "use client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type GameSettings, gameSettingsSchema } from "@/schema/create-room";
+import { type CreateRoomValues, createRoomSchema } from "@/schema/create-room";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/providers/auth-provider";
 import {
   Users,
   Clock,
@@ -9,6 +12,8 @@ import {
   Pencil,
   Target,
   WholeWord,
+  Lock,
+  File,
 } from "lucide-react";
 
 import {
@@ -35,36 +40,96 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { socketService, SocketError } from "@/lib/services/socket.service";
 
-interface CreateRoomFormProps {
-  onSubmitStart?: () => void;
-  onSubmitComplete?: () => void;
-}
+const CreateRoomForm = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const { handleAuthError } = useAuth();
 
-const CreateRoomForm = ({
-  onSubmitStart,
-  onSubmitComplete,
-}: CreateRoomFormProps = {}) => {
-  const form = useForm<GameSettings>({
-    resolver: zodResolver(gameSettingsSchema),
+  const form = useForm<CreateRoomValues>({
+    resolver: zodResolver(createRoomSchema),
     defaultValues: {
-      players: 8,
-      drawTime: 80,
-      rounds: 3,
-      wordCount: 3,
-      hints: 2,
+      maxPlayers: 8,
+      isPrivate: false,
+      name: "",
+      rounds: 2,
     },
   });
 
-  function onSubmit(values: GameSettings) {
-    if (onSubmitStart) onSubmitStart();
-    console.log(values);
+  async function onSubmit(values: CreateRoomValues) {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    // Simulate API call with timeout
-    setTimeout(() => {
-      if (onSubmitComplete) onSubmitComplete();
-      // Here you would typically redirect to the new room
-    }, 1000);
+      // Make sure we have a socket connection
+      if (!socketService.isConnected()) {
+        try {
+          await socketService.connect();
+        } catch (connectError) {
+          // Check if it's an auth error
+          if (
+            connectError instanceof Error &&
+            (connectError.message.includes("expired") ||
+              connectError.message.includes("auth") ||
+              connectError.message.includes("token"))
+          ) {
+            // Handle as auth error
+            handleAuthError({
+              code: "AUTH_FAILED",
+              message: connectError.message,
+              redirectTo: "/login",
+            });
+            return;
+          } else {
+            throw connectError;
+          }
+        }
+      }
+
+      // Send create room request
+      const room = await socketService.createRoom({
+        name: values.name,
+        maxPlayers: values.maxPlayers,
+        rounds: values.rounds,
+        isPrivate: values.isPrivate,
+        password: values.password,
+      });
+
+      // Show success message in console
+      console.log(`Room created: ${room.name}`);
+
+      // Navigate to the room
+      router.push(`/join-room`);
+    } catch (error) {
+      console.error("Failed to create room:", error);
+
+      // Handle the error based on its properties
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to create room";
+      setError(errorMessage);
+
+      // Check if the error should be treated as an auth error
+      if (
+        errorMessage.includes("unauthorized") ||
+        errorMessage.includes("expired") ||
+        errorMessage.includes("token")
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: errorMessage,
+          redirectTo: "/login",
+        });
+      } else {
+        // Show generic error alert for non-auth errors
+        alert(errorMessage);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   const generateSelectItems = (start: number, end: number, step = 1) =>
@@ -75,7 +140,7 @@ const CreateRoomForm = ({
     ));
 
   return (
-    <div className="relative mx-auto w-full max-w-lg">
+    <div className="relative mx-auto w-full max-w-md">
       {/* Decorative elements */}
       <div className="absolute -top-6 -left-6 h-12 w-12 rounded-full bg-yellow-400 opacity-80"></div>
       <div className="absolute -right-4 -bottom-4 h-10 w-10 rounded-full bg-blue-500 opacity-70"></div>
@@ -99,13 +164,41 @@ const CreateRoomForm = ({
         </CardHeader>
 
         <CardContent className="relative pt-4">
+          {error && (
+            <div className="mb-4 rounded-md bg-red-100 p-3 text-center text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                {/* Room Name */}
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
+                      <FormLabel className="flex items-center gap-2 text-amber-800">
+                        <File className="h-4 w-4 text-amber-600" />
+                        Room Name
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          className="border-amber-300 bg-white"
+                          placeholder="Enter room name"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 {/* Players */}
                 <FormField
                   control={form.control}
-                  name="players"
+                  name="maxPlayers"
                   render={({ field }) => (
                     <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
                       <FormLabel className="flex items-center gap-2 text-amber-800">
@@ -122,38 +215,8 @@ const CreateRoomForm = ({
                           <SelectTrigger className="border-amber-300 bg-white">
                             <SelectValue placeholder="Select number of players" />
                           </SelectTrigger>
-                          <SelectContent title="Choose number of artists">
+                          <SelectContent title="Choose number of players">
                             {generateSelectItems(1, 10)}
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Draw Time */}
-                <FormField
-                  control={form.control}
-                  name="drawTime"
-                  render={({ field }) => (
-                    <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
-                      <FormLabel className="flex items-center gap-2 text-amber-800">
-                        <Clock className="h-4 w-4 text-amber-600" />
-                        Sketch Time
-                      </FormLabel>
-                      <FormControl>
-                        <Select
-                          onValueChange={(value) =>
-                            field.onChange(Number(value))
-                          }
-                          defaultValue={field.value?.toString()}
-                        >
-                          <SelectTrigger className="border-amber-300 bg-white">
-                            <SelectValue placeholder="Select draw time" />
-                          </SelectTrigger>
-                          <SelectContent title="Set your drawing time">
-                            {generateSelectItems(20, 240, 20)}
                           </SelectContent>
                         </Select>
                       </FormControl>
@@ -183,7 +246,7 @@ const CreateRoomForm = ({
                             <SelectValue placeholder="Select number of rounds" />
                           </SelectTrigger>
                           <SelectContent title="Number of drawing rounds">
-                            {generateSelectItems(2, 10)}
+                            {generateSelectItems(1, 8)}
                           </SelectContent>
                         </Select>
                       </FormControl>
@@ -192,65 +255,57 @@ const CreateRoomForm = ({
                   )}
                 />
 
-                {/* Word Count */}
+                {/* Is Private */}
                 <FormField
                   control={form.control}
-                  name="wordCount"
+                  name="isPrivate"
                   render={({ field }) => (
                     <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
                       <FormLabel className="flex items-center gap-2 text-amber-800">
-                        <WholeWord className="h-4 w-4 text-amber-600" />
-                        Word Count
+                        <Lock className="h-4 w-4 text-amber-600" />
+                        Private Room
                       </FormLabel>
                       <FormControl>
-                        <Select
-                          onValueChange={(value) =>
-                            field.onChange(Number(value))
-                          }
-                          defaultValue={field.value?.toString()}
-                        >
-                          <SelectTrigger className="border-amber-300 bg-white">
-                            <SelectValue placeholder="Select word count" />
-                          </SelectTrigger>
-                          <SelectContent title="Number of words per round">
-                            {generateSelectItems(1, 5)}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                          <span className="text-sm text-amber-700">
+                            {field.value ? "Private" : "Public"}
+                          </span>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                {/* Hints */}
-                <FormField
-                  control={form.control}
-                  name="hints"
-                  render={({ field }) => (
-                    <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
-                      <FormLabel className="flex items-center gap-2 text-amber-800">
-                        <Lightbulb className="h-4 w-4 text-amber-600" />
-                        Hints
-                      </FormLabel>
-                      <FormControl>
-                        <Select
-                          onValueChange={(value) =>
-                            field.onChange(Number(value))
-                          }
-                          defaultValue={field.value?.toString()}
-                        >
-                          <SelectTrigger className="border-amber-300 bg-white">
-                            <SelectValue placeholder="Select hints" />
-                          </SelectTrigger>
-                          <SelectContent title="Available inspiration clues">
-                            {generateSelectItems(0, 5)}
-                          </SelectContent>
-                        </Select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Password (conditional) */}
+                {form.watch("isPrivate") && (
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem className="rounded-lg border border-amber-200 bg-white/80 p-3">
+                        <FormLabel className="flex items-center gap-2 text-amber-800">
+                          <Lock className="h-4 w-4 text-amber-600" />
+                          Password
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            className="border-amber-300 bg-white"
+                            placeholder="Enter room password"
+                            {...field}
+                            value={field.value || ""}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </div>
 
               <div className="mt-8 flex justify-center">
@@ -258,8 +313,9 @@ const CreateRoomForm = ({
                   type="submit"
                   size="lg"
                   className="w-full rounded-full border-2 border-amber-600 bg-amber-500 px-8 font-medium text-white shadow-md transition-all hover:bg-amber-600 hover:shadow-lg md:w-auto"
+                  disabled={isLoading}
                 >
-                  Create Room
+                  {isLoading ? "Creating..." : "Create Room"}
                 </Button>
               </div>
             </form>

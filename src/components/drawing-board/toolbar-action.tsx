@@ -12,6 +12,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
+import { useGame } from "@/lib/providers/game-provider";
+import { DrawingPath } from "@/lib/services/game.service";
 
 interface ToolbarActionProps {
   eraseMode: boolean;
@@ -21,6 +23,14 @@ interface ToolbarActionProps {
   setEraseMode: (eraseMode: boolean) => void;
 }
 
+interface ExtendedCanvasPath {
+  drawMode: boolean;
+  isEraser?: boolean;
+  strokeColor: string;
+  strokeWidth: number;
+  paths: { x: number; y: number }[];
+}
+
 const ToolbarAction = ({
   eraseMode,
   setStrokeWidth,
@@ -28,26 +38,65 @@ const ToolbarAction = ({
   canvasRef,
   setEraseMode,
 }: ToolbarActionProps) => {
+  const { updateDrawing, gameState, currentRound, isDrawer } = useGame();
+
+  // Helper function to update the drawing
+  const updateDrawingAfterAction = async () => {
+    if (!gameState || !currentRound || !isDrawer) return;
+
+    try {
+      // Get all paths from the canvas
+      const exportedPaths = await canvasRef.current?.exportPaths();
+      if (!exportedPaths) return;
+
+      // Convert paths to the format expected by the server
+      const drawingPaths = exportedPaths.map((path) => {
+        const pathWithEraser = path as ExtendedCanvasPath;
+        return {
+          drawMode: !(pathWithEraser.isEraser ?? false),
+          strokeColor: pathWithEraser.strokeColor,
+          strokeWidth: pathWithEraser.strokeWidth,
+          points: pathWithEraser.paths.map((point) => ({
+            x: point.x,
+            y: point.y,
+          })),
+        };
+      }) as DrawingPath[];
+
+      // Send to server
+      if (gameState.status === "PLAYING") {
+        updateDrawing(drawingPaths);
+      }
+    } catch (error) {
+      console.error("Error updating drawing:", error);
+    }
+  };
+
   function handleEraserClick() {
     setEraseMode(true);
-    canvasRef.current?.eraseMode(true);
+    const _canvas = canvasRef.current?.eraseMode(true);
+    setTimeout(updateDrawingAfterAction, 100);
   }
 
   function handlePenClick() {
     setEraseMode(false);
     canvasRef.current?.eraseMode(false);
+    setTimeout(updateDrawingAfterAction, 100);
   }
 
   function handleUndoClick() {
     canvasRef.current?.undo();
+    setTimeout(updateDrawingAfterAction, 100);
   }
 
   function handleRedoClick() {
     canvasRef.current?.redo();
+    setTimeout(updateDrawingAfterAction, 100);
   }
 
   function handleClearClick() {
     canvasRef.current?.clearCanvas();
+    setTimeout(updateDrawingAfterAction, 100);
   }
 
   return (
@@ -130,7 +179,10 @@ const ToolbarAction = ({
         <div>
           <StrokeSelectBox
             strokeWidth={strokeWidth}
-            setStrokeWidth={setStrokeWidth}
+            setStrokeWidth={(width) => {
+              setStrokeWidth(width);
+              setTimeout(updateDrawingAfterAction, 100);
+            }}
           />
         </div>
 

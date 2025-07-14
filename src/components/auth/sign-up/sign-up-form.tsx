@@ -26,7 +26,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import PasswordCriteria from "../password-criteria";
-import { useAuthContext } from "@/lib/providers/auth-provider";
+import { useAuth } from "@/lib/providers/auth-provider";
 import { toast } from "sonner";
 
 // Define schema directly in the component file for better readability
@@ -61,7 +61,7 @@ const SignUpForm = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [showCriteria, setShowCriteria] = useState(false);
-  const { signup } = useAuthContext();
+  const { signup } = useAuth();
 
   const form = useForm<SignUpSchemaType>({
     resolver: zodResolver(signUpSchema),

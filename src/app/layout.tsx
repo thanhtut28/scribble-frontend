@@ -4,7 +4,10 @@ import "./globals.css";
 import { QueryProvider } from "@/lib/providers/query-provider";
 import { AuthProvider } from "@/lib/providers/auth-provider";
 import { SocketProvider } from "@/lib/providers/socket-provider";
+import { GameProvider } from "@/lib/providers/game-provider";
 import { Toaster } from "sonner";
+import Navbar from "@/components/navbar";
+import BlockConsole from "@/components/ui/block-console";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,11 +34,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <BlockConsole />
         <QueryProvider>
           <AuthProvider>
             <SocketProvider>
-              {children}
-              <Toaster position="top-right" richColors />
+              <GameProvider>
+                <div className="flex min-h-screen flex-col">
+                  <Navbar />
+                  <main className="flex-1">{children}</main>
+                </div>
+                <Toaster position="top-right" richColors />
+              </GameProvider>
             </SocketProvider>
           </AuthProvider>
         </QueryProvider>

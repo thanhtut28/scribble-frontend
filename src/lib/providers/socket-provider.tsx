@@ -9,9 +9,10 @@ import {
   useCallback,
 } from "react";
 import { Socket } from "socket.io-client";
-import { socketService, Room } from "../services/socket.service";
-import { useAuthContext } from "./auth-provider";
+import { socketService, Room, SocketError } from "../services/socket.service";
+import { authRoutes, useAuth } from "./auth-provider";
 import { toast } from "sonner";
+import { usePathname } from "next/navigation";
 
 interface SocketContextType {
   socket: Socket | null;
@@ -34,140 +35,183 @@ interface SocketContextType {
   ) => Promise<Room>;
   joinRoom: (roomId: string, password?: string) => Promise<Room>;
   leaveRoom: (roomId: string) => Promise<void>;
+  toggleReady: (roomId: string) => Promise<Room>;
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 export const SocketProvider = ({ children }: { children: ReactNode }) => {
-  const { isAuthenticated, user } = useAuthContext();
+  const { isAuthenticated, handleAuthError, user } = useAuth();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [currentRoom, setCurrentRoom] = useState<Room | null>(null);
+  const pathname = usePathname();
 
-  // Store event unsubscribe functions
-  const [unsubscribeFunctions, setUnsubscribeFunctions] = useState<
-    (() => void)[]
-  >([]);
+  // Handle socket auth errors
+  const handleSocketAuthError = useCallback(
+    (error: SocketError) => {
+      console.error("Socket authentication error:", error);
+      handleAuthError(error);
+    },
+    [handleAuthError],
+  );
 
-  // Connect to socket when authenticated
-  const connect = useCallback(async (): Promise<void> => {
-    if (!isAuthenticated) {
-      console.log("Not attempting connection - user is not authenticated");
-      return;
-    }
+  // Set up socket event handlers
+  const setupSocketEventHandlers = useCallback(() => {
+    // Register to socket auth error events
+    socketService.onAuthError(handleSocketAuthError);
 
-    if (connecting) {
-      console.log("Already attempting to connect, skipping");
-      return;
-    }
+    // Setup rooms events
+    socketService.onRooms((updatedRooms) => {
+      console.log("Rooms updated:", updatedRooms.length);
+      setRooms(updatedRooms);
 
-    console.log("Starting socket connection attempt...");
-    setConnecting(true);
-    setError(null);
+      const _currentRoom = updatedRooms.find((r) =>
+        r.users.some((u) => u.userId === user?.id),
+      );
 
-    try {
-      const socket = await socketService.connect();
-      setSocket(socket);
-      console.log("Socket connected in provider");
-      setIsConnected(true);
+      if (_currentRoom) {
+        console.log("Updating current room from rooms event:", _currentRoom.id);
+        setCurrentRoom(_currentRoom);
+      }
 
-      console.log("Fetching initial rooms...");
-      await refreshRooms();
-      console.log("Initial rooms fetched successfully");
+      // If we have a current room, update it from the rooms list
+      if (currentRoom) {
+        const updatedCurrentRoom = updatedRooms.find(
+          (r) => r.id === currentRoom.id,
+        );
+        if (updatedCurrentRoom) {
+          console.log(
+            "Updating current room from rooms event:",
+            updatedCurrentRoom.id,
+          );
+          setCurrentRoom(updatedCurrentRoom);
+        }
+      }
+    });
 
-      // Set up event listeners
-      console.log("Setting up socket event listeners...");
+    // Add player ready changed event handler
+    socketService.onPlayerReadyChanged(({ room, userId, isReady }) => {
+      console.log(
+        `User ${userId} ready status changed to ${isReady} in room ${room.id}`,
+      );
 
-      const unsubscribeRooms = socketService.onRooms((updatedRooms) => {
-        console.log("Rooms updated:", updatedRooms.length);
-        setRooms(updatedRooms);
-      });
+      // Update rooms list
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
 
-      const unsubscribeRoomCreated = socketService.onRoomCreated((room) => {
-        console.log("Room created:", room.name);
-        setRooms((prev) => [...prev, room]);
+      // If this is the current room, update it
+      if (currentRoom?.id === room.id) {
+        console.log(
+          "Updating current room from playerReadyChanged event:",
+          room.id,
+        );
+        setCurrentRoom(room);
+      }
+
+      // Get the user's name if possible
+      const readyUser = room.users.find((u) => u.userId === userId);
+      if (readyUser) {
+        toast.info(
+          `${readyUser.user.username} is ${isReady ? "ready" : "not ready"} to play.`,
+        );
+      }
+    });
+
+    socketService.onRoomCreated((room) => {
+      console.log("Room created:", room.name);
+
+      // Add to rooms list if it's not the current user's room
+      if (!currentRoom || currentRoom.id !== room.id) {
+        setCurrentRoom(room);
+        setRooms((prev) => {
+          // Check if room already exists in the list
+          if (prev.some((r) => r.id === room.id)) {
+            return prev;
+          }
+          return [...prev, room];
+        });
         toast.success(`Room "${room.name}" created.`);
-      });
+      }
+    });
 
-      const unsubscribeUserJoined = socketService.onUserJoined(
-        ({ room, userId }) => {
-          console.log(`User ${userId} joined room ${room.id}`);
-          setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+    socketService.onUserJoined(({ room, userId }) => {
+      console.log(`User ${userId} joined room ${room.id}`);
 
-          if (currentRoom?.id === room.id) {
-            setCurrentRoom(room);
-          }
+      // Update rooms list
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
 
-          // If the current user is not the one who joined
-          if (user?.id !== userId) {
-            const joinedUser = room.users.find((u) => u.userId === userId);
-            if (joinedUser) {
-              toast.info(`${joinedUser.user.username} joined the room.`);
-            }
-          }
-        },
-      );
+      // If this is the current room, update it
+      if (currentRoom?.id === room.id) {
+        console.log("Updating current room from userJoined event:", room.id);
+        setCurrentRoom(room);
+      }
 
-      const unsubscribeUserLeft = socketService.onUserLeft(
-        ({ room, userId }) => {
-          console.log(`User ${userId} left room ${room.id}`);
-          setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+      // Only show toast if it's not the current user joining
+      const currentUserId = currentRoom?.users.find((u) => u.isReady)?.userId;
 
-          if (currentRoom?.id === room.id) {
-            setCurrentRoom(room);
-          }
+      if (userId !== currentUserId) {
+        // Get the joined user's name if possible
+        const joinedUser = room.users.find((u) => u.userId === userId);
+        if (joinedUser) {
+          toast.info(`${joinedUser.user.username} joined the room.`);
+        }
+      }
+    });
 
-          const leftUser = currentRoom?.users.find((u) => u.userId === userId);
-          if (leftUser && user?.id !== userId) {
-            toast.info(`${leftUser.user.username} left the room.`);
-          }
-        },
-      );
+    socketService.onUserLeft(({ room, userId }) => {
+      console.log(`User ${userId} left room ${room.id}`);
 
-      // Store unsubscribe functions to call later when disconnecting
-      setUnsubscribeFunctions([
-        unsubscribeRooms,
-        unsubscribeRoomCreated,
-        unsubscribeUserJoined,
-        unsubscribeUserLeft,
-      ]);
+      // Update rooms list
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
 
-      console.log("Socket setup complete");
-    } catch (err) {
-      console.error("Socket connection failed:", err);
-      setError(
-        err instanceof Error ? err : new Error("Failed to connect to socket"),
-      );
-      toast.error("Failed to connect to game server.");
-    } finally {
-      setConnecting(false);
-    }
-  }, [
-    isAuthenticated,
-    connecting,
-    currentRoom?.id,
-    currentRoom?.users,
-    user?.id,
-  ]);
+      // If this is the current room, update it
+      if (currentRoom?.id === room.id) {
+        console.log("Updating current room from userLeft event:", room.id);
+        setCurrentRoom(room);
+      }
 
-  const disconnect = useCallback(() => {
-    // Call all unsubscribe functions
-    unsubscribeFunctions.forEach((unsubscribe) => unsubscribe());
-    setUnsubscribeFunctions([]);
+      // Only show toast if it's not the current user leaving
+      const currentUserId = currentRoom?.users.find((u) => u.isReady)?.userId;
 
-    socketService.disconnect();
-    setSocket(null);
-    setIsConnected(false);
-    setCurrentRoom(null);
-  }, [unsubscribeFunctions]);
+      if (userId !== currentUserId) {
+        // Get the left user's info
+        const leftUser = currentRoom?.users.find((u) => u.userId === userId);
+        if (leftUser) {
+          toast.info(`${leftUser.user.username} left the room.`);
+        }
+      }
+    });
+
+    // Handle game events
+    socketService.onGameStarted((room) => {
+      if (currentRoom?.id === room.id) {
+        console.log("Updating current room from gameStarted event:", room.id);
+        setCurrentRoom(room);
+        toast.success("Game started!");
+      }
+
+      // Update rooms list
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+    });
+
+    socketService.onGameEnded((room) => {
+      if (currentRoom?.id === room.id) {
+        console.log("Updating current room from gameEnded event:", room.id);
+        setCurrentRoom(room);
+        toast.success("Game ended!");
+      }
+
+      // Update rooms list
+      setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
+    });
+  }, [currentRoom, handleSocketAuthError, user]);
 
   const refreshRooms = async () => {
     // Don't try to refresh if we're not connected and don't retry connection here
     if (!isConnected) {
-      // console.error("Cannot refresh rooms - socket not connected");
       setRooms([]);
       return;
     }
@@ -202,8 +246,21 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       // Reset rooms to empty array on error
       setRooms([]);
 
-      // Mark as disconnected if we got a Socket not connected error
+      // Check if this is an auth error
       if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+      }
+      // Mark as disconnected if we got a Socket not connected error
+      else if (
         err instanceof Error &&
         err.message.includes("Socket not connected")
       ) {
@@ -214,15 +271,122 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Connect to socket when authenticated
+  const connect = useCallback(async (): Promise<void> => {
+    if (!isAuthenticated) {
+      console.log("Not attempting connection - user is not authenticated");
+      return;
+    }
+
+    if (connecting) {
+      console.log("Already attempting to connect, skipping");
+      return;
+    }
+
+    console.log("Starting socket connection attempt...");
+    setConnecting(true);
+    setError(null);
+
+    try {
+      // Clear previous room state on new connection attempt
+      setCurrentRoom(null);
+
+      // Attempt to connect
+      const socket = await socketService.connect();
+      console.log("Socket connection successful");
+      setSocket(socket);
+      setIsConnected(true);
+
+      // Always set up event handlers after successful connection
+      setupSocketEventHandlers();
+
+      // Fetch initial rooms
+      await refreshRooms();
+    } catch (err) {
+      console.error("Socket connection error:", err);
+      setError(err instanceof Error ? err : new Error("Failed to connect"));
+      setIsConnected(false);
+      setSocket(null);
+
+      // Check if this is an auth error
+      if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+      }
+    } finally {
+      setConnecting(false);
+    }
+  }, [
+    isAuthenticated,
+    connecting,
+    handleAuthError,
+    setupSocketEventHandlers,
+    refreshRooms,
+    isConnected,
+  ]);
+
+  const disconnect = useCallback(() => {
+    // Clean up socket event handlers
+    socketService.disconnect();
+    setSocket(null);
+    setIsConnected(false);
+    setCurrentRoom(null);
+  }, []);
+
   const createRoom = async (name: string, options = {}) => {
     try {
+      // Don't show duplicate toast messages from event handlers
+      let creationSuccessful = false;
+
+      console.log(
+        "Creating room:",
+        name,
+        "Current room before:",
+        currentRoom?.id,
+      );
+
       const room = await socketService.createRoom({
         name,
         ...options,
       });
+
+      // Mark the operation as successful to prevent duplicate success messages from socket events
+      creationSuccessful = true;
+
+      console.log("Room creation successful, room data:", room);
+
+      // Always update current room when creation is successful
       setCurrentRoom(room);
+      console.log("Current room set to:", room.id);
+
+      // Add toast success message
+      toast.success(`Room "${room.name}" created successfully`);
+
       return room;
     } catch (err) {
+      // Check if this is an auth error
+      if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+        throw err;
+      }
+
       const errorMessage =
         err instanceof Error ? err.message : "Failed to create room";
       toast.error(errorMessage);
@@ -232,13 +396,50 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
   const joinRoom = async (roomId: string, password?: string) => {
     try {
+      // Don't show duplicate toast messages from event handlers
+      let joinSuccessful = false;
+
+      console.log(
+        "Joining room:",
+        roomId,
+        "Current room before:",
+        currentRoom?.id,
+      );
+
       const room = await socketService.joinRoom({
         roomId,
         password,
       });
+
+      // Mark the operation as successful to prevent duplicate success messages from socket events
+      joinSuccessful = true;
+
+      console.log("Join successful, room data:", room);
+
+      // Always update current room when join is successful
       setCurrentRoom(room);
+      console.log("Current room set to:", room.id);
+
+      // Add toast success message
+      toast.success(`Joined room "${room.name}"`);
+
       return room;
     } catch (err) {
+      // Check if this is an auth error
+      if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+        throw err;
+      }
+
       const errorMessage =
         err instanceof Error ? err.message : "Failed to join room";
       toast.error(errorMessage);
@@ -251,6 +452,21 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       await socketService.leaveRoom(roomId);
       setCurrentRoom(null);
     } catch (err) {
+      // Check if this is an auth error
+      if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+        return;
+      }
+
       const errorMessage =
         err instanceof Error ? err.message : "Failed to leave room";
       toast.error(errorMessage);
@@ -258,40 +474,97 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Auto-connect when authenticated
-  useEffect(() => {
-    if (isAuthenticated && !isConnected && !connecting) {
-      console.log("Attempting to connect to socket...");
-      connect();
-    }
+  const toggleReady = async (roomId: string) => {
+    try {
+      console.log("Toggling ready state in room:", roomId);
 
-    // Cleanup on unmount
-    return () => {
-      if (isConnected) {
-        console.log("Disconnecting socket on cleanup");
-        disconnect();
+      const room = await socketService.toggleReady(roomId);
+      console.log("Toggle ready successful, room data:", room);
+
+      // Update current room
+      setCurrentRoom(room);
+
+      // The user's ready state
+      const currentUser = room.users.find((u) => u.userId === user?.id);
+      if (currentUser) {
+        toast.success(
+          `You are ${currentUser.isReady ? "ready" : "not ready"} to play`,
+        );
       }
-    };
-  }, [isAuthenticated, isConnected, connecting, connect, disconnect]);
 
-  // Expose socket context to components
-  const value = {
-    socket,
-    isConnected,
-    connecting,
-    error,
-    rooms,
-    currentRoom,
-    connect,
-    disconnect,
-    refreshRooms,
-    createRoom,
-    joinRoom,
-    leaveRoom,
+      return room;
+    } catch (err) {
+      // Check if this is an auth error
+      if (
+        err instanceof Error &&
+        (err.message.includes("authentication") ||
+          err.message.includes("token") ||
+          err.message.includes("expired"))
+      ) {
+        handleAuthError({
+          code: "AUTH_FAILED",
+          message: err.message,
+          redirectTo: "/login",
+        });
+        throw err;
+      }
+
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to toggle ready state";
+      toast.error(errorMessage);
+      throw err;
+    }
   };
 
+  // Connect when authenticated
+  useEffect(() => {
+    // Skip connecting on auth routes
+    if (typeof window !== "undefined" && authRoutes.includes(pathname)) {
+      return;
+    }
+
+    if (isAuthenticated && !isConnected && !connecting) {
+      connect();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // Disconnect when not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && isConnected) {
+      disconnect();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <SocketContext.Provider value={value}>{children}</SocketContext.Provider>
+    <SocketContext.Provider
+      value={{
+        socket,
+        isConnected,
+        connecting,
+        error,
+        rooms,
+        currentRoom,
+        connect,
+        disconnect,
+        refreshRooms,
+        createRoom,
+        joinRoom,
+        leaveRoom,
+        toggleReady,
+      }}
+    >
+      {children}
+    </SocketContext.Provider>
   );
 };
 

@@ -1,5 +1,6 @@
 import { io, Socket } from "socket.io-client";
 import Cookies from "js-cookie";
+import { useRouter } from "next/navigation";
 
 // Types for room-related events
 export interface Room {
@@ -41,10 +42,24 @@ export interface JoinRoomOptions {
   password?: string;
 }
 
+// Error types for handling socket errors
+export interface SocketError {
+  code?: string;
+  message: string;
+  redirectTo?: string;
+}
+
+// Create a global event for authentication errors
+export const SOCKET_AUTH_ERROR_EVENT = "socket:auth:error";
+
 class SocketService {
   private socket: Socket | null = null;
   private socketUrl =
     process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 3;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private authErrorHandlers: ((error: SocketError) => void)[] = [];
 
   // Initialize socket connection
   connect(): Promise<Socket> {
@@ -67,7 +82,7 @@ class SocketService {
         transports: ["websocket"], // Only websocket as specified in README
         auth: { token }, // Pass token exactly as shown in README
         timeout: 20000, // Increase timeout to 20 seconds
-        reconnection: false, // Explicitly disable auto-reconnection
+        reconnection: false, // Explicitly disable auto-reconnection to handle it manually
       });
 
       // Add a manual timeout to the connection attempt
@@ -82,6 +97,7 @@ class SocketService {
       this.socket.on("connect", () => {
         console.log("Socket connected successfully");
         clearTimeout(connectionTimeout);
+        this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
         resolve(this.socket!);
       });
 
@@ -91,8 +107,9 @@ class SocketService {
         reject(error);
       });
 
-      this.socket.on("error", (error) => {
+      this.socket.on("error", (error: SocketError) => {
         console.error("Socket error:", error);
+        this.handleSocketError(error);
       });
 
       // Add more connection debug info
@@ -112,11 +129,64 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
     }
+
+    // Clear any reconnection timers
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   // Check if socket is connected
   isConnected(): boolean {
     return this.socket?.connected || false;
+  }
+
+  // Register auth error handler
+  onAuthError(handler: (error: SocketError) => void) {
+    this.authErrorHandlers.push(handler);
+    return () => {
+      this.authErrorHandlers = this.authErrorHandlers.filter(
+        (h) => h !== handler,
+      );
+    };
+  }
+
+  // Handle socket errors, especially authentication errors
+  private handleSocketError(error: SocketError) {
+    // Handle token expiration and other auth errors
+    if (error.code === "TOKEN_EXPIRED" || error.code === "AUTH_FAILED") {
+      console.error(`Authentication error: ${error.message}`);
+
+      // Notify all registered error handlers
+      this.authErrorHandlers.forEach((handler) => handler(error));
+
+      // Dispatch global event for auth errors
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(SOCKET_AUTH_ERROR_EVENT, {
+            detail: error,
+          }),
+        );
+      }
+
+      // Disconnect the socket
+      this.disconnect();
+    }
+  }
+
+  // Try to reconnect the socket
+  reconnect(): Promise<Socket> {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return Promise.reject(new Error("Maximum reconnection attempts reached"));
+    }
+
+    this.reconnectAttempts++;
+    console.log(
+      `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`,
+    );
+
+    return this.connect();
   }
 
   // Get available rooms
@@ -186,8 +256,16 @@ class SocketService {
       this.socket.emit(
         "getRoom",
         roomId,
-        (response: { error?: string; data?: Room }) => {
+        (response: { error?: string; data?: Room; redirectTo?: string }) => {
           if (response.error) {
+            // Check if this is an auth error with redirect
+            if (response.redirectTo) {
+              this.handleSocketError({
+                code: "AUTH_FAILED",
+                message: response.error,
+                redirectTo: response.redirectTo,
+              });
+            }
             reject(new Error(response.error));
           } else if (!response.data) {
             reject(new Error("Room not found"));
@@ -207,19 +285,87 @@ class SocketService {
         return;
       }
 
-      this.socket.emit(
-        "createRoom",
-        options,
-        (response: { error?: string; data?: Room }) => {
-          if (response.error) {
-            reject(new Error(response.error));
-          } else if (!response.data) {
-            reject(new Error("Failed to create room"));
-          } else {
-            resolve(response.data);
+      interface ServerResponse {
+        error?: string;
+        redirectTo?: string;
+        data?: Room;
+        id?: string;
+        name?: string;
+        maxPlayers?: number;
+        rounds?: number;
+        isPrivate?: boolean;
+        status?: string;
+        ownerId?: string;
+        users?: RoomUser[];
+        createdAt?: string;
+        updatedAt?: string;
+      }
+
+      try {
+        this.socket.emit("createRoom", options, (response: ServerResponse) => {
+          try {
+            // Handle null or undefined response
+            if (!response) {
+              console.error("Null response received from server");
+              reject(new Error("Invalid response from server: null response"));
+              return;
+            }
+
+            if (response.error) {
+              // Check if this is an auth error with redirect
+              if (response.redirectTo) {
+                this.handleSocketError({
+                  code: "AUTH_FAILED",
+                  message: response.error,
+                  redirectTo: response.redirectTo,
+                });
+              }
+              reject(new Error(response.error));
+              return;
+            }
+
+            // Either directly get data from response.data or reconstruct from fields
+            const roomData = response.data || {
+              id: response.id,
+              name: response.name,
+              maxPlayers: response.maxPlayers || 8,
+              rounds: response.rounds || 3,
+              isPrivate: response.isPrivate || false,
+              status: response.status || "WAITING",
+              ownerId: response.ownerId || "",
+              users: response.users || [],
+              createdAt: response.createdAt || new Date().toISOString(),
+              updatedAt: response.updatedAt || new Date().toISOString(),
+            };
+
+            // Validate room data
+            if (!roomData.id) {
+              console.error("Invalid room data:", roomData);
+              reject(new Error("Invalid room data returned from server"));
+              return;
+            }
+
+            resolve(roomData as Room);
+          } catch (callbackError: unknown) {
+            const errorMessage =
+              callbackError instanceof Error
+                ? callbackError.message
+                : "Unknown error";
+            console.error(
+              "Error processing createRoom response:",
+              callbackError,
+            );
+            reject(
+              new Error(`Error processing server response: ${errorMessage}`),
+            );
           }
-        },
-      );
+        });
+      } catch (emitError: unknown) {
+        const errorMessage =
+          emitError instanceof Error ? emitError.message : "Unknown error";
+        console.error("Error emitting createRoom event:", emitError);
+        reject(new Error(`Socket emit error: ${errorMessage}`));
+      }
     });
   }
 
@@ -231,83 +377,282 @@ class SocketService {
         return;
       }
 
-      this.socket.emit(
-        "joinRoom",
-        options,
-        (response: { error?: string; data?: Room }) => {
-          if (response.error) {
-            reject(new Error(response.error));
-          } else if (!response.data) {
-            reject(new Error("Failed to join room"));
-          } else {
-            resolve(response.data);
+      interface ServerResponse {
+        error?: string;
+        redirectTo?: string;
+        data?: Room;
+        id?: string;
+        name?: string;
+        maxPlayers?: number;
+        rounds?: number;
+        isPrivate?: boolean;
+        status?: string;
+        ownerId?: string;
+        users?: RoomUser[];
+        createdAt?: string;
+        updatedAt?: string;
+      }
+
+      this.socket.emit("joinRoom", options, (response: unknown) => {
+        console.log("Join room response:", response);
+
+        // Handle different response formats
+        if (!response) {
+          reject(new Error("No response from server"));
+          return;
+        }
+
+        // Type guard
+        const responseObj = response as ServerResponse;
+
+        // Handle error case
+        if (responseObj.error) {
+          // Check if this is an auth error with redirect
+          if (responseObj.redirectTo) {
+            this.handleSocketError({
+              code: "AUTH_FAILED",
+              message: responseObj.error,
+              redirectTo: responseObj.redirectTo,
+            });
           }
-        },
-      );
+          reject(new Error(responseObj.error));
+          return;
+        }
+
+        // Backend might return the room directly or nested in a data property
+        const roomData = responseObj.data || responseObj;
+
+        if (!roomData || !roomData.id) {
+          reject(new Error("Failed to join room: Invalid response format"));
+          return;
+        }
+
+        resolve(roomData as Room);
+      });
     });
   }
 
   // Leave a room
-  leaveRoom(roomId: string): Promise<void> {
+  leaveRoom(roomId: string): Promise<Room | { message: string }> {
     return new Promise((resolve, reject) => {
       if (!this.socket || !this.isConnected()) {
         reject(new Error("Socket not connected"));
         return;
       }
 
-      this.socket.emit("leaveRoom", roomId, (response: { error?: string }) => {
-        if (response.error) {
-          reject(new Error(response.error));
-        } else {
-          resolve();
+      interface ServerResponse {
+        error?: string;
+        redirectTo?: string;
+        data?: Room | { message: string };
+        id?: string;
+        name?: string;
+        maxPlayers?: number;
+        rounds?: number;
+        isPrivate?: boolean;
+        status?: string;
+        ownerId?: string;
+        users?: RoomUser[];
+        createdAt?: string;
+        updatedAt?: string;
+        message?: string;
+      }
+
+      this.socket.emit("leaveRoom", roomId, (response: unknown) => {
+        console.log("Leave room response:", response);
+
+        // Handle different response formats
+        if (!response) {
+          reject(new Error("No response from server"));
+          return;
         }
+
+        // Type guard
+        const responseObj = response as ServerResponse;
+
+        // Handle error case
+        if (responseObj.error) {
+          // Check if this is an auth error with redirect
+          if (responseObj.redirectTo) {
+            this.handleSocketError({
+              code: "AUTH_FAILED",
+              message: responseObj.error,
+              redirectTo: responseObj.redirectTo,
+            });
+          }
+          reject(new Error(responseObj.error));
+          return;
+        }
+
+        // Backend might return the room directly or nested in a data property
+        const responseData = responseObj.data || responseObj;
+
+        // Could be room object or message object
+        if (!responseData) {
+          reject(new Error("Failed to leave room: Invalid response format"));
+          return;
+        }
+
+        resolve(responseData as Room | { message: string });
       });
     });
   }
 
-  // Event listeners
+  // Toggle ready status for the current user in a room
+  toggleReady(roomId: string): Promise<Room> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.isConnected()) {
+        reject(new Error("Socket not connected"));
+        return;
+      }
+
+      interface ServerResponse {
+        error?: string;
+        redirectTo?: string;
+        data?: Room;
+        id?: string;
+        name?: string;
+        maxPlayers?: number;
+        rounds?: number;
+        isPrivate?: boolean;
+        status?: string;
+        ownerId?: string;
+        users?: RoomUser[];
+        createdAt?: string;
+        updatedAt?: string;
+      }
+
+      this.socket.emit("toggleReady", roomId, (response: unknown) => {
+        console.log("Toggle ready response:", response);
+
+        // Handle different response formats
+        if (!response) {
+          reject(new Error("No response from server"));
+          return;
+        }
+
+        // Type guard
+        const responseObj = response as ServerResponse;
+
+        // Handle error case
+        if (responseObj.error) {
+          // Check if this is an auth error with redirect
+          if (responseObj.redirectTo) {
+            this.handleSocketError({
+              code: "AUTH_FAILED",
+              message: responseObj.error,
+              redirectTo: responseObj.redirectTo,
+            });
+          }
+          reject(new Error(responseObj.error));
+          return;
+        }
+
+        // Backend might return the room directly or nested in a data property
+        const roomData = responseObj.data || responseObj;
+
+        if (!roomData || !roomData.id) {
+          reject(
+            new Error("Failed to toggle ready state: Invalid response format"),
+          );
+          return;
+        }
+
+        resolve(roomData as Room);
+      });
+    });
+  }
+
+  // Set up event listeners for room updates
   onRooms(callback: (rooms: Room[]) => void) {
-    this.socket?.on("rooms", callback);
-    return () => {
-      this.socket?.off("rooms", callback);
-    };
+    if (this.socket) {
+      this.socket.on("rooms", callback);
+    }
   }
 
   onRoomCreated(callback: (room: Room) => void) {
-    this.socket?.on("roomCreated", callback);
-    return () => {
-      this.socket?.off("roomCreated", callback);
-    };
+    if (this.socket) {
+      this.socket.on("roomCreated", callback);
+    }
   }
 
   onUserJoined(callback: (data: { room: Room; userId: string }) => void) {
-    this.socket?.on("userJoined", callback);
-    return () => {
-      this.socket?.off("userJoined", callback);
-    };
+    if (this.socket) {
+      this.socket.on("userJoined", callback);
+    }
   }
 
   onUserLeft(callback: (data: { room: Room; userId: string }) => void) {
-    this.socket?.on("userLeft", callback);
-    return () => {
-      this.socket?.off("userLeft", callback);
-    };
+    if (this.socket) {
+      this.socket.on("userLeft", callback);
+    }
   }
 
   onGameStarted(callback: (room: Room) => void) {
-    this.socket?.on("gameStarted", callback);
-    return () => {
-      this.socket?.off("gameStarted", callback);
-    };
+    if (this.socket) {
+      this.socket.on("gameStarted", callback);
+    }
   }
 
   onGameEnded(callback: (room: Room) => void) {
-    this.socket?.on("gameEnded", callback);
-    return () => {
-      this.socket?.off("gameEnded", callback);
-    };
+    if (this.socket) {
+      this.socket.on("gameEnded", callback);
+    }
+  }
+
+  // Set up event listeners for player ready status changes
+  onPlayerReadyChanged(
+    callback: (data: { room: Room; userId: string; isReady: boolean }) => void,
+  ) {
+    if (this.socket) {
+      this.socket.on("playerReadyChanged", callback);
+    }
+  }
+
+  // Remove event listeners
+  offRooms(callback: (rooms: Room[]) => void) {
+    if (this.socket) {
+      this.socket.off("rooms", callback);
+    }
+  }
+
+  offRoomCreated(callback: (room: Room) => void) {
+    if (this.socket) {
+      this.socket.off("roomCreated", callback);
+    }
+  }
+
+  offUserJoined(callback: (data: { room: Room; userId: string }) => void) {
+    if (this.socket) {
+      this.socket.off("userJoined", callback);
+    }
+  }
+
+  offUserLeft(callback: (data: { room: Room; userId: string }) => void) {
+    if (this.socket) {
+      this.socket.off("userLeft", callback);
+    }
+  }
+
+  offGameStarted(callback: (room: Room) => void) {
+    if (this.socket) {
+      this.socket.off("gameStarted", callback);
+    }
+  }
+
+  offGameEnded(callback: (room: Room) => void) {
+    if (this.socket) {
+      this.socket.off("gameEnded", callback);
+    }
+  }
+
+  // Remove event listener for player ready status changes
+  offPlayerReadyChanged(
+    callback: (data: { room: Room; userId: string; isReady: boolean }) => void,
+  ) {
+    if (this.socket) {
+      this.socket.off("playerReadyChanged", callback);
+    }
   }
 }
 
-// Create a singleton instance
 export const socketService = new SocketService();

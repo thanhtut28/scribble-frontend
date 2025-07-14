@@ -3,44 +3,71 @@
 import { useState, useRef, useEffect } from "react";
 import ChatMessages from "./chat-message";
 import ChatInput from "./chat-input";
+import { useGame } from "@/lib/providers/game-provider";
+import { Message as GameMessage } from "@/lib/services/game.service";
+import { useAuth } from "@/lib/providers/auth-provider";
 
 export interface Message {
   id: string;
   content: string;
   sender: string;
+  userId?: string;
   avatar?: string;
   isCurrentUser?: boolean;
+  isCorrect?: boolean;
+  timestamp?: string;
 }
 
 export default function ChatRoom() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content: "Hey there! Welcome to our artistic doodle chat 🎨",
-      sender: "Sarah",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    {
-      id: "2",
-      content: "Thanks! I love the playful design of this app!",
-      sender: "You",
-      isCurrentUser: true,
-    },
-    {
-      id: "3",
-      content:
-        "The dashed borders and fun colors really make it stand out. Ready to play?",
-      sender: "Alex",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-    {
-      id: "4",
-      content: "I can't wait to show off my doodling skills in the next round!",
-      sender: "Sarah",
-      avatar: "/placeholder.svg?height=40&width=40",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const { user } = useAuth();
+  const {
+    gameState,
+    messages: gameMessages,
+    sendChatMessage,
+    currentRound,
+    isDrawer,
+  } = useGame();
+
+  // Convert game messages to our format
+  useEffect(() => {
+    if (!gameMessages || !gameMessages.length) return;
+
+    const formattedMessages = gameMessages.map((msg: GameMessage) => ({
+      id: msg.id,
+      content: msg.content,
+      sender: msg.username || "Unknown",
+      userId: msg.userId,
+      isCurrentUser: msg.userId === user?.id, // Mark current user's messages
+      isCorrect: msg.isCorrect,
+      timestamp: new Date(msg.createdAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    }));
+
+    setMessages(formattedMessages);
+  }, [gameMessages, user?.id]);
+
+  // Add welcome message when the component mounts
+  useEffect(() => {
+    // Only add welcome message if game has started but no messages yet
+    if (gameState && (!messages || messages.length === 0)) {
+      const welcomeMessage: Message = {
+        id: "welcome-message",
+        content: isDrawer
+          ? "You are drawing! Others will try to guess your word."
+          : "Guess the word being drawn in the chat!",
+        sender: "Game",
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setMessages([welcomeMessage]);
+    }
+  }, [gameState, messages, isDrawer]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -53,15 +80,38 @@ export default function ChatRoom() {
   const handleSendMessage = (content: string) => {
     if (!content.trim()) return;
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      content,
-      sender: "You",
-      isCurrentUser: true,
-    };
+    // If there's no active game, just add to local messages
+    if (!gameState) {
+      const newMessage: Message = {
+        id: Date.now().toString(),
+        content,
+        sender: user?.username || "You",
+        userId: user?.id,
+        isCurrentUser: true,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
 
-    setMessages([...messages, newMessage]);
+      setMessages([...messages, newMessage]);
+      return;
+    }
+
+    // In a game, send to the server
+    sendChatMessage(content);
+
+    // Don't add the message locally, it will come back through the websocket
+    // and be added to the messages automatically
   };
+
+  // Check if the current user is the drawer and should be blocked from guessing
+  const isInputDisabled = !!currentRound && isDrawer;
+
+  // Check if all players have guessed correctly
+  const hasGuessedCorrectly =
+    gameState &&
+    gameMessages?.some((msg) => msg.isCorrect && msg.userId === user?.id);
 
   return (
     <div className="relative mx-auto w-full max-w-md">
@@ -77,10 +127,14 @@ export default function ChatRoom() {
 
         <div className="border-b-2 border-dashed border-amber-300 bg-[#f8f4e8] p-3">
           <h2 className="font-comic text-xl font-bold text-amber-800">
-            Artistic Chat Room
+            Game Chat
           </h2>
           <p className="text-sm text-amber-700">
-            Share your creative ideas with friends!
+            {isInputDisabled
+              ? "You're drawing! You can't guess."
+              : hasGuessedCorrectly
+                ? "You guessed correctly!"
+                : "Guess the word being drawn!"}
           </p>
         </div>
 
@@ -89,7 +143,17 @@ export default function ChatRoom() {
           <div ref={messagesEndRef} />
         </div>
 
-        <ChatInput onSendMessage={handleSendMessage} />
+        <ChatInput
+          onSendMessage={handleSendMessage}
+          disabled={isInputDisabled || hasGuessedCorrectly === true}
+          placeholder={
+            isInputDisabled
+              ? "You're the drawer, you can't guess"
+              : hasGuessedCorrectly
+                ? "You've already guessed correctly"
+                : "Type your guess here..."
+          }
+        />
       </div>
     </div>
   );

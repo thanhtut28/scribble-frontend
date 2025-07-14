@@ -1,3 +1,4 @@
+import { jwtDecode } from "jwt-decode";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -21,16 +22,42 @@ export function middleware(request: NextRequest) {
   // Get the token from cookies
   const token = request.cookies.get("accessToken")?.value;
 
-  // If it's a protected route and there's no token, redirect to login
-  if (isProtectedRoute && !token) {
-    const url = new URL("/login", request.url);
-    url.searchParams.set("callbackUrl", encodeURI(pathname));
-    return NextResponse.redirect(url);
-  }
+  // Different handling for protected routes vs. auth routes
+  if (isProtectedRoute) {
+    // For protected routes, we need a valid token
+    if (!token) {
+      // No token, redirect to login
+      const url = new URL("/login", request.url);
+      url.searchParams.set("callbackUrl", encodeURI(pathname));
+      return NextResponse.redirect(url);
+    }
 
-  // If it's an auth route and there's a token, redirect to home
-  if (isAuthRoute && token) {
-    return NextResponse.redirect(new URL("/", request.url));
+    try {
+      // Verify token expiration
+      const decodedToken = jwtDecode<{ exp: number }>(token);
+      if (decodedToken.exp < Date.now() / 1000) {
+        // Token expired, redirect to login
+        const url = new URL("/login", request.url);
+        return NextResponse.redirect(url);
+      }
+    } catch (error) {
+      // Token is invalid, redirect to login
+      const url = new URL("/login", request.url);
+      return NextResponse.redirect(url);
+    }
+  } else if (isAuthRoute) {
+    // For auth routes, redirect to home if valid token exists
+    if (token) {
+      try {
+        const decodedToken = jwtDecode<{ exp: number }>(token);
+        if (decodedToken.exp > Date.now() / 1000) {
+          // Valid token on auth route, redirect to home
+          return NextResponse.redirect(new URL("/", request.url));
+        }
+      } catch (error) {
+        // Invalid token, do nothing and let them access the auth route
+      }
+    }
   }
 
   return NextResponse.next();

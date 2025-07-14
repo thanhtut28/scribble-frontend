@@ -1,238 +1,179 @@
 "use client";
+
+import { useState } from "react";
+import { useAuth } from "@/lib/providers/auth-provider";
 import { motion } from "framer-motion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Crown, Pencil, Medal, Star, Clock, AlertTriangle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import clsx from "clsx";
+import { Crown, Award, Clock, Pencil, CheckCircle2 } from "lucide-react";
 
 export interface RoomUser {
   id: string;
   name: string;
-  avatar?: string;
+  avatar: string;
   points: number;
   isCurrentUser?: boolean;
-  joinOrder: number; // Property to track join order
-  joinedAt: Date; // Timestamp when user joined
+  joinOrder: number;
+  joinedAt: Date;
+  isReady?: boolean;
 }
 
 interface RoomUsersProps {
   users: RoomUser[];
-  currentTurn: number; // Current turn number
-  roundTime?: number; // Time in seconds for each drawing round
-  timeLeft?: number; // Time left in current round
+  currentTurn: number;
+  roundTime: number;
+  timeLeft: number;
+  currentDrawerId?: string;
+  ownerId?: string;
 }
 
 export default function RoomUsers({
   users,
   currentTurn,
-  roundTime = 80,
-  timeLeft = 65,
+  roundTime,
+  timeLeft,
+  currentDrawerId,
+  ownerId,
 }: RoomUsersProps) {
-  // Sort users by points (highest first)
+  const { user } = useAuth();
+  const [expanded, setExpanded] = useState(true);
+
+  // Sort users by points (descending)
   const sortedUsers = [...users].sort((a, b) => b.points - a.points);
 
-  // Add rank to each user
-  const rankedUsers = sortedUsers.map((user, index) => ({
-    ...user,
-    rank: index + 1,
+  // Mark current user
+  const usersWithCurrentUser = sortedUsers.map((roomUser) => ({
+    ...roomUser,
+    isCurrentUser: roomUser.id === user?.id,
   }));
 
-  // Sort users by join order (for the drawer list display)
-  const joinOrderUsers = [...users].sort((a, b) => a.joinOrder - b.joinOrder);
+  // Get current drawer based on drawer ID or fallback to turn number
+  let currentDrawer: RoomUser | undefined;
 
-  // Determine current drawer based on turn number and join order
-  // We use modulo to cycle through users based on their join order
-  const currentDrawerIndex = currentTurn % users.length;
-  const currentDrawer = joinOrderUsers[currentDrawerIndex];
+  if (currentDrawerId) {
+    // If we have a specific drawer ID from the game state, use that
+    currentDrawer = users.find((u) => u.id === currentDrawerId);
+  } else {
+    // Fallback: Get the current drawer based on turn number
+    const currentDrawerIndex = currentTurn % users.length;
+    const joinOrderUsers = [...users].sort((a, b) => a.joinOrder - b.joinOrder);
+    currentDrawer = joinOrderUsers[currentDrawerIndex];
+  }
 
-  // Calculate progress percentage for the timer
-  const progressPercentage = (timeLeft / roundTime) * 100;
+  // Format time as mm:ss
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
-  // Determine if time is running low (less than 10 seconds)
-  const isTimeLow = timeLeft < 10;
+  const getTimePercentage = () => {
+    return (timeLeft / roundTime) * 100;
+  };
 
   return (
-    <div className="relative mx-auto w-full max-w-md">
-      {/* Decorative elements */}
-      {/* <div className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-green-500 opacity-70"></div> */}
-      <div className="absolute bottom-1/3 -left-3 h-6 w-6 rounded-full bg-purple-500 opacity-70"></div>
+    <div className="h-full rounded-xl border-2 border-dashed border-amber-300 bg-[#fffdf7] p-4 shadow-md">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-bold text-amber-800">Players</h2>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-amber-600 hover:text-amber-800"
+        >
+          {expanded ? "Hide" : "Show"}
+        </button>
+      </div>
 
-      <div className="relative rounded-lg border-2 border-dashed border-amber-500 bg-[#fffdf7] shadow-lg">
-        {/* Decorative background elements */}
-        <div className="absolute top-0 right-0 h-16 w-16 rounded-bl-full bg-blue-100 opacity-50"></div>
-        <div className="absolute bottom-0 left-0 h-20 w-20 rounded-tr-full bg-red-100 opacity-50"></div>
-
-        <div className="border-b-2 border-dashed border-amber-300 bg-[#f8f4e8] p-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-comic text-lg font-bold text-amber-800">
-              Artists in Room
-            </h2>
-            <div className="flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-700">
-              <Clock className="h-3 w-3" />
-              <span>Turn {currentTurn + 1}</span>
-            </div>
-          </div>
-
-          {/* Current drawer info and timer */}
-          <div className="mt-2 rounded-lg border border-amber-300 bg-white p-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Pencil className="h-4 w-4 text-amber-600" />
+      {expanded && (
+        <>
+          {/* Timer if game is in progress */}
+          <div className="mb-4 rounded-lg border border-amber-200 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center">
+                <Clock className="mr-1 h-4 w-4 text-amber-600" />
                 <span className="text-sm font-medium text-amber-800">
-                  {currentDrawer
-                    ? `${currentDrawer.name} is drawing`
-                    : "Waiting for players..."}
+                  Drawing Time
                 </span>
               </div>
-              <motion.div
-                animate={isTimeLow ? { scale: [1, 1.1, 1] } : {}}
-                transition={{
-                  repeat: isTimeLow ? Number.POSITIVE_INFINITY : 0,
-                  duration: 0.5,
-                }}
-              >
-                <Badge
-                  className={`${
-                    isTimeLow
-                      ? "bg-red-100 text-red-700"
-                      : "bg-amber-100 text-amber-700"
-                  } flex items-center gap-1`}
-                >
-                  {isTimeLow && <AlertTriangle className="h-3 w-3" />}
-                  {timeLeft}s
-                </Badge>
-              </motion.div>
+              <span className="font-mono text-sm font-bold text-amber-900">
+                {formatTime(timeLeft)}
+              </span>
             </div>
-
-            {/* Timer progress bar */}
-            <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-2 overflow-hidden rounded-full bg-gray-200">
               <motion.div
-                className={`h-full ${isTimeLow ? "bg-red-500" : "bg-amber-500"}`}
-                initial={{ width: `${progressPercentage}%` }}
-                animate={{ width: `${progressPercentage}%` }}
+                className="h-full bg-gradient-to-r from-amber-500 to-amber-300"
+                initial={{ width: "100%" }}
+                animate={{ width: `${getTimePercentage()}%` }}
                 transition={{ duration: 0.5 }}
               />
             </div>
           </div>
 
-          {/* Drawing order display */}
-          <div className="mt-2 flex items-center overflow-x-auto py-1">
-            <span className="mr-2 text-xs text-amber-700">Drawing Order:</span>
-            <div className="flex space-x-1">
-              {joinOrderUsers.map((user, index) => (
-                <div
-                  key={`order-${user.id}`}
-                  className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
-                    index === currentDrawerIndex
-                      ? "border-amber-600 bg-amber-500 text-white"
-                      : "border-amber-300 bg-white text-amber-700"
-                  } text-xs font-bold`}
-                  title={user.name}
-                >
-                  {index + 1}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="max-h-[300px] overflow-y-auto p-2">
           <div className="space-y-2">
-            {rankedUsers.map((user) => {
-              const isDrawing = user.id === currentDrawer?.id;
-
-              return (
-                <motion.div
-                  key={user.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className={`relative rounded-lg border-2 ${
-                    isDrawing
-                      ? "border-amber-500 bg-amber-50"
-                      : "border-amber-200 bg-white"
-                  } p-2 shadow-md transition-all duration-300 hover:shadow-lg`}
-                >
-                  {/* Rank indicator */}
-                  <div className="absolute -top-2 -left-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-amber-500 text-xs font-bold text-white shadow-md">
-                    {user.rank <= 3 ? <RankIcon rank={user.rank} /> : user.rank}
-                  </div>
-
-                  {/* Drawing indicator */}
-                  {isDrawing && (
-                    <motion.div
-                      className="absolute -top-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-green-500 text-white shadow-md"
-                      animate={{
-                        scale: [1, 1.1, 1],
-                        rotate: [0, 5, -5, 0],
-                      }}
-                      transition={{
-                        repeat: Number.POSITIVE_INFINITY,
-                        duration: 2,
-                      }}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </motion.div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Avatar
-                        className={`h-10 w-10 border-2 ${user.isCurrentUser ? "border-amber-500" : "border-amber-200"}`}
-                      >
-                        <AvatarImage src={user.avatar || "/placeholder.svg"} />
-                        <AvatarFallback className="bg-gradient-to-br from-amber-200 to-amber-300 text-amber-700">
-                          {user.name.substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="flex items-center">
-                          <p className="font-medium text-amber-800">
-                            {user.name}
-                          </p>
-                          {user.isCurrentUser && (
-                            <Badge className="ml-1 bg-amber-200 px-1 text-[10px] text-amber-800">
-                              You
-                            </Badge>
-                          )}
-                          <Badge
-                            className="ml-1 bg-blue-100 px-1 text-[10px] text-blue-800"
-                            title="Join order"
-                          >
-                            #{user.joinOrder + 1}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center text-xs text-amber-600">
-                          <Star className="mr-1 h-3 w-3 fill-amber-400 text-amber-400" />
-                          <span>{user.points} points</span>
-                        </div>
+            {usersWithCurrentUser.map((_user, index) => (
+              <div
+                key={_user.id}
+                className={clsx(
+                  "flex items-center justify-between rounded-lg border p-2",
+                  _user.isCurrentUser
+                    ? "border-amber-400 bg-amber-50"
+                    : "border-gray-100 bg-white",
+                  currentDrawer?.id === _user.id &&
+                    "border-green-400 bg-green-50",
+                )}
+              >
+                <div className="flex items-center">
+                  <div className="relative">
+                    <div className="relative flex aspect-square h-8 w-8 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-50 text-amber-700">
+                      {ownerId === _user.id && (
+                        <Crown className="absolute -top-2 left-0 mr-1 aspect-square h-4 w-4 rounded-full bg-white text-amber-400" />
+                      )}
+                      {_user.name.charAt(0).toUpperCase()}
+                    </div>
+                    {currentDrawer?.id === _user.id && (
+                      <div className="absolute -top-1 -right-1 rounded-full bg-green-500 p-0.5 text-white">
+                        <Pencil className="h-2.5 w-2.5" />
                       </div>
-                    </div>
-
-                    {/* Points badge */}
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-amber-300 bg-white text-sm font-bold text-amber-700">
-                      {user.points}
-                    </div>
+                    )}
+                    {_user.isReady && !currentDrawer?.id && (
+                      <div className="absolute -right-1 -bottom-1 rounded-full bg-green-500 p-0.5 text-white">
+                        <CheckCircle2 className="h-2.5 w-2.5" />
+                      </div>
+                    )}
                   </div>
-                </motion.div>
-              );
-            })}
+                  <div className="ml-2">
+                    <p
+                      className={clsx(
+                        "text-sm font-medium",
+                        _user.isCurrentUser
+                          ? "text-amber-800"
+                          : "text-gray-700",
+                        currentDrawer?.id === _user.id && "text-green-700",
+                      )}
+                    >
+                      {_user.name}
+                      {_user.isCurrentUser && (
+                        <span className="ml-1 text-xs text-amber-600">
+                          (You)
+                        </span>
+                      )}
+                    </p>
+                    {_user.isReady && !currentDrawer && (
+                      <span className="text-xs text-green-600">Ready</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center">
+                  <Award className="mr-1 h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-medium text-amber-800">
+                    {_user.points}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
-}
-
-// Helper component for rank icons
-function RankIcon({ rank }: { rank: number }) {
-  switch (rank) {
-    case 1:
-      return <Crown className="h-3 w-3 fill-yellow-300 text-yellow-600" />;
-    case 2:
-      return <Medal className="h-3 w-3 fill-gray-300 text-gray-500" />;
-    case 3:
-      return <Medal className="h-3 w-3 fill-amber-600 text-amber-800" />;
-    default:
-      return <>{rank}</>;
-  }
 }
