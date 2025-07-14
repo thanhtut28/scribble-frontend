@@ -42,6 +42,10 @@ A real-time multiplayer drawing and guessing game built with React (Next.js) fro
 - **JWT** - Authentication and authorization
 - **TypeScript** - Full-stack type safety
 
+## 🔗 Related Repositories
+
+- **Backend**: [@thanhtut28/scribble-backend](https://github.com/thanhtut28/scribble-backend) - NestJS backend server with Socket.io, Prisma, and JWT authentication
+
 ## 🚀 Getting Started
 
 ### Prerequisites
