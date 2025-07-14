@@ -197,4 +197,4 @@ _Add more screenshots of your application here_
 
 ---
 
-Built with ❤️ by [Your Name](https://github.com/your-username)
+Built with ❤️ by [Than Htut Aung](https://github.com/your-username)
